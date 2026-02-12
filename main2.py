@@ -8,16 +8,29 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QFileDialog,
     QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QMessageBox, QSlider
+    QDoubleSpinBox, QSpinBox, QMessageBox, QSlider, QSizePolicy
 )
+
+# ----------------------------
+# Click-to-seek Slider
+# ----------------------------
+class ClickableSlider(QSlider):
+    """슬라이더 바 클릭 위치로 즉시 이동 가능한 QSlider"""
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal:
+            x = event.pos().x()
+            w = max(1, self.width())
+            v = self.minimum() + (self.maximum() - self.minimum()) * x / w
+            self.setValue(int(round(v)))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
 
 # ----------------------------
 # Slider + Spinbox helpers
 # ----------------------------
 def make_int_control(label_text, vmin, vmax, vinit, step=1):
-    """
-    int 파라미터용: (라벨, 슬라이더, 스핀박스) 묶음 생성
-    """
     lbl = QLabel(label_text)
 
     sld = QSlider(Qt.Horizontal)
@@ -31,7 +44,6 @@ def make_int_control(label_text, vmin, vmax, vinit, step=1):
     spn.setSingleStep(step)
     spn.setValue(vinit)
 
-    # 동기화(루프 방지)
     def sld_to_spn(v):
         if spn.value() != v:
             spn.blockSignals(True)
@@ -51,9 +63,6 @@ def make_int_control(label_text, vmin, vmax, vinit, step=1):
 
 
 def make_float_control(label_text, vmin, vmax, vinit, step=0.01, decimals=2):
-    """
-    float 파라미터용: QSlider는 int만 되므로 scale로 변환해서 동기화
-    """
     lbl = QLabel(label_text)
 
     scale = int(round(1.0 / step))
@@ -64,7 +73,7 @@ def make_float_control(label_text, vmin, vmax, vinit, step=0.01, decimals=2):
     sld = QSlider(Qt.Horizontal)
     sld.setRange(imin, imax)
     sld.setSingleStep(1)
-    sld.setPageStep(max(1, int(scale * step)))  # 대충 한 step 정도
+    sld.setPageStep(max(1, int(scale * step)))
     sld.setValue(iinit)
 
     spn = QDoubleSpinBox()
@@ -94,7 +103,7 @@ def make_float_control(label_text, vmin, vmax, vinit, step=0.01, decimals=2):
 
 
 # ----------------------------
-# Your processing functions
+# Processing functions
 # ----------------------------
 def laplacian_pyramid_sharpen(inp_img, w0=1.5, w1=1.25, w2=1.1):
     img = inp_img.astype(np.float32)
@@ -109,29 +118,22 @@ def laplacian_pyramid_sharpen(inp_img, w0=1.5, w1=1.25, w2=1.1):
     L2 = G2 - cv2.pyrUp(G3, dstsize=(G2.shape[1], G2.shape[0]))
     L3 = G3
 
-    L0 = L0 * w0
-    L1 = L1 * w1
-    L2 = L2 * w2
+    L0 *= w0
+    L1 *= w1
+    L2 *= w2
 
     current = L3
-    current = cv2.pyrUp(current, dstsize=(L2.shape[1], L2.shape[0]))
-    current = current + L2
+    current = cv2.pyrUp(current, dstsize=(L2.shape[1], L2.shape[0])) + L2
+    current = cv2.pyrUp(current, dstsize=(L1.shape[1], L1.shape[0])) + L1
+    current = cv2.pyrUp(current, dstsize=(L0.shape[1], L0.shape[0])) + L0
 
-    current = cv2.pyrUp(current, dstsize=(L1.shape[1], L1.shape[0]))
-    current = current + L1
-
-    current = cv2.pyrUp(current, dstsize=(L0.shape[1], L0.shape[0]))
-    current = current + L0
-
-    sharp = np.clip(current, 0, 255).astype(np.uint8)
-    return sharp
+    return np.clip(current, 0, 255).astype(np.uint8)
 
 
 def gaussian_denoise(img, ksize=5, sigma=0, grayscale=False):
     if ksize % 2 == 0:
         ksize += 1
-    denoised = cv2.GaussianBlur(img, (ksize, ksize), sigmaX=sigma, sigmaY=sigma)
-    return denoised
+    return cv2.GaussianBlur(img, (ksize, ksize), sigmaX=sigma, sigmaY=sigma)
 
 
 def apply_clahe(img, clipLimit=2.0, tileGridSize=(8, 8)):
@@ -142,18 +144,6 @@ def apply_clahe(img, clipLimit=2.0, tileGridSize=(8, 8)):
 # ----------------------------
 # Helpers
 # ----------------------------
-def cv_bgr_to_qpixmap(bgr: np.ndarray, max_w=640, max_h=360) -> QPixmap:
-    if bgr is None:
-        return QPixmap()
-
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    h, w, ch = rgb.shape
-    bytes_per_line = ch * w
-    qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-    pix = QPixmap.fromImage(qimg)
-    return pix.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
-
 def ensure_gray_u8(img_bgr: np.ndarray) -> np.ndarray:
     if img_bgr.ndim == 2:
         gray = img_bgr
@@ -166,6 +156,17 @@ def ensure_gray_u8(img_bgr: np.ndarray) -> np.ndarray:
 
 def gray_to_bgr(gray: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+
+def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
+    """스케일링 없이 QPixmap만 생성"""
+    if bgr is None:
+        return QPixmap()
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    h, w, ch = rgb.shape
+    bytes_per_line = ch * w
+    qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+    return QPixmap.fromImage(qimg)
 
 
 # ----------------------------
@@ -193,6 +194,11 @@ class MainWindow(QMainWindow):
         self.video_fps = None
         self.video_size = None
 
+        # Timeline state
+        self.total_frames = 0
+        self.duration_sec = 0.0
+        self.seeking = False
+
         # UI
         central = QWidget()
         self.setCentralWidget(central)
@@ -200,12 +206,14 @@ class MainWindow(QMainWindow):
         self.lbl_orig = QLabel("Original")
         self.lbl_orig.setAlignment(Qt.AlignCenter)
         self.lbl_orig.setStyleSheet("background:#222; color:#ddd; border:1px solid #444;")
-        self.lbl_orig.setMinimumSize(640, 360)
+        self.lbl_orig.setMinimumSize(640, 480)
+        self.lbl_orig.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.lbl_proc = QLabel("Processed")
         self.lbl_proc.setAlignment(Qt.AlignCenter)
         self.lbl_proc.setStyleSheet("background:#222; color:#ddd; border:1px solid #444;")
-        self.lbl_proc.setMinimumSize(640, 360)
+        self.lbl_proc.setMinimumSize(640, 480)
+        self.lbl_proc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # Buttons
         btn_open = QPushButton("Open Image/Video")
@@ -226,7 +234,35 @@ class MainWindow(QMainWindow):
         self.btn_save_vid.clicked.connect(self.toggle_video_save)
         self.btn_save_vid.setEnabled(False)
 
-        # Controls group
+        # Timeline widget (video only) - hidden by default
+        self.timeline_widget = QWidget()
+        tl = QHBoxLayout(self.timeline_widget)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(8)
+
+        self.lbl_video_info = QLabel("")  # no "Video:-"
+        self.lbl_video_info.setAlignment(Qt.AlignLeft)
+        self.lbl_video_info.setMinimumWidth(240)
+
+        self.sld_timeline = ClickableSlider(Qt.Horizontal)
+        self.sld_timeline.setEnabled(False)
+        self.sld_timeline.setRange(0, 0)
+        self.sld_timeline.setSingleStep(1)
+        self.sld_timeline.setPageStep(10)
+        self.sld_timeline.setFixedHeight(14)  #  더 얇게
+        self.sld_timeline.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.lbl_time = QLabel("")
+        self.lbl_time.setAlignment(Qt.AlignRight)
+        self.lbl_time.setMinimumWidth(220)
+
+        tl.addWidget(self.lbl_video_info, 0)
+        tl.addWidget(self.sld_timeline, 1)
+        tl.addWidget(self.lbl_time, 0)
+
+        self.timeline_widget.setVisible(False)
+
+        # Controls
         controls = self._build_controls()
 
         # Layouts
@@ -243,8 +279,9 @@ class MainWindow(QMainWindow):
         views.addWidget(self.lbl_proc, 1)
 
         left = QVBoxLayout()
-        left.addLayout(top_btns)
-        left.addLayout(views)
+        left.addLayout(top_btns, 0)
+        left.addLayout(views, 1)              #  영상 영역이 항상 제일 크게 늘어남
+        left.addWidget(self.timeline_widget, 0)
 
         root = QHBoxLayout()
         root.addLayout(left, 3)
@@ -254,6 +291,11 @@ class MainWindow(QMainWindow):
 
         self._connect_param_signals()
 
+        # Timeline signals
+        self.sld_timeline.sliderPressed.connect(self._timeline_pressed)
+        self.sld_timeline.sliderReleased.connect(self._timeline_released)
+        self.sld_timeline.valueChanged.connect(self._timeline_changed)
+
     # ----------------------------
     # UI builders
     # ----------------------------
@@ -261,7 +303,6 @@ class MainWindow(QMainWindow):
         box = QGroupBox("Processing Controls")
         layout = QVBoxLayout()
 
-        # Enable stages
         self.chk_denoise = QCheckBox("Enable Gaussian Denoise")
         self.chk_denoise.setChecked(True)
 
@@ -275,38 +316,29 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.chk_clahe)
         layout.addWidget(self.chk_sharpen)
 
-        # ---------------- Gaussian ----------------
         g_gauss = QGroupBox("Gaussian")
         gl = QGridLayout()
-
         lbl_ksize, self.sld_ksize, self.sp_ksize = make_int_control("ksize", 1, 99, 5, step=2)
         lbl_sigma, self.sld_sigma, self.sp_sigma = make_float_control("sigma", 0.0, 50.0, 0.0, step=0.25, decimals=2)
-
         gl.addWidget(lbl_ksize, 0, 0); gl.addWidget(self.sld_ksize, 0, 1); gl.addWidget(self.sp_ksize, 0, 2)
         gl.addWidget(lbl_sigma, 1, 0); gl.addWidget(self.sld_sigma, 1, 1); gl.addWidget(self.sp_sigma, 1, 2)
         g_gauss.setLayout(gl)
 
-        # ---------------- CLAHE ----------------
         g_clahe = QGroupBox("CLAHE")
         cl = QGridLayout()
-
         lbl_clip, self.sld_clip, self.sp_clip = make_float_control("clipLimit", 0.1, 20.0, 2.0, step=0.1, decimals=2)
         lbl_tx, self.sld_tile_x, self.sp_tile_x = make_int_control("tileGrid X", 2, 64, 8, step=1)
         lbl_ty, self.sld_tile_y, self.sp_tile_y = make_int_control("tileGrid Y", 2, 64, 8, step=1)
-
         cl.addWidget(lbl_clip, 0, 0); cl.addWidget(self.sld_clip, 0, 1); cl.addWidget(self.sp_clip, 0, 2)
         cl.addWidget(lbl_tx,   1, 0); cl.addWidget(self.sld_tile_x, 1, 1); cl.addWidget(self.sp_tile_x, 1, 2)
         cl.addWidget(lbl_ty,   2, 0); cl.addWidget(self.sld_tile_y, 2, 1); cl.addWidget(self.sp_tile_y, 2, 2)
         g_clahe.setLayout(cl)
 
-        # ---------------- Sharpen ----------------
         g_sharp = QGroupBox("Laplacian Pyramid Sharpen")
         sl = QGridLayout()
-
         lbl_w0, self.sld_w0, self.sp_w0 = make_float_control("w0 (fine)",   0.0, 5.0, 1.50, step=0.05, decimals=2)
         lbl_w1, self.sld_w1, self.sp_w1 = make_float_control("w1 (mid)",    0.0, 5.0, 1.25, step=0.05, decimals=2)
         lbl_w2, self.sld_w2, self.sp_w2 = make_float_control("w2 (coarse)", 0.0, 5.0, 1.10, step=0.05, decimals=2)
-
         sl.addWidget(lbl_w0, 0, 0); sl.addWidget(self.sld_w0, 0, 1); sl.addWidget(self.sp_w0, 0, 2)
         sl.addWidget(lbl_w1, 1, 0); sl.addWidget(self.sld_w1, 1, 1); sl.addWidget(self.sp_w1, 1, 2)
         sl.addWidget(lbl_w2, 2, 0); sl.addWidget(self.sld_w2, 2, 1); sl.addWidget(self.sp_w2, 2, 2)
@@ -324,15 +356,11 @@ class MainWindow(QMainWindow):
     def _connect_param_signals(self):
         widgets = [
             self.chk_denoise, self.chk_clahe, self.chk_sharpen,
-
-            # sliders + spinboxes
             self.sld_ksize, self.sp_ksize,
             self.sld_sigma, self.sp_sigma,
-
             self.sld_clip, self.sp_clip,
             self.sld_tile_x, self.sp_tile_x,
             self.sld_tile_y, self.sp_tile_y,
-
             self.sld_w0, self.sp_w0,
             self.sld_w1, self.sp_w1,
             self.sld_w2, self.sp_w2
@@ -342,6 +370,104 @@ class MainWindow(QMainWindow):
                 w.stateChanged.connect(self.refresh_once)
             else:
                 w.valueChanged.connect(self.refresh_once)
+
+    # ----------------------------
+    # Display helpers (fill labels)
+    # ----------------------------
+    def _set_label_bgr(self, label: QLabel, bgr: np.ndarray):
+        if bgr is None:
+            label.clear()
+            return
+        pix = bgr_to_qpixmap(bgr)
+        # 라벨 크기에 맞춰 꽉 채우기(비율 유지)
+        label.setPixmap(pix.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _refresh_views(self):
+        if self.orig_img is not None:
+            self._set_label_bgr(self.lbl_orig, self.orig_img)
+        if self.proc_img is not None:
+            self._set_label_bgr(self.lbl_proc, self.proc_img)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 창 크기 바뀌면 현재 프레임을 라벨 크기에 맞춰 다시 스케일
+        self._refresh_views()
+
+    # ----------------------------
+    # Timeline / seeking
+    # ----------------------------
+    def _timeline_pressed(self):
+        if self.mode == "video":
+            self.seeking = True
+
+    def _timeline_released(self):
+        if self.mode != "video":
+            self.seeking = False
+            return
+        self.seeking = False
+        self._seek_to_frame(self.sld_timeline.value())
+
+    def _timeline_changed(self, v):
+        if self.mode != "video":
+            return
+        v = int(v)
+        if self.seeking:
+            self._update_time_label(current_frame=v)
+        else:
+            if self.cap is not None:
+                self._seek_to_frame(v)
+
+    def _seek_to_frame(self, frame_idx: int):
+        if self.cap is None or self.total_frames <= 0:
+            return
+
+        frame_idx = int(np.clip(frame_idx, 0, self.total_frames - 1))
+        was_running = self.timer.isActive()
+        if was_running:
+            self.timer.stop()
+
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ok, frame = self.cap.read()
+        if ok and frame is not None:
+            self.orig_img = frame
+            self.proc_img = self.process_frame(frame)
+            self._refresh_views()
+
+            pos = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+            self._sync_timeline(pos)
+        else:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            self._sync_timeline(0)
+
+        if was_running:
+            interval = int(1000.0 / max(self.video_fps, 1.0))
+            self.timer.start(interval)
+
+    def _sync_timeline(self, current_frame: int):
+        if self.total_frames <= 0:
+            return
+        current_frame = int(np.clip(current_frame, 0, self.total_frames - 1))
+        self.sld_timeline.blockSignals(True)
+        self.sld_timeline.setValue(current_frame)
+        self.sld_timeline.blockSignals(False)
+        self._update_time_label(current_frame=current_frame)
+
+    def _update_time_label(self, current_frame: int):
+        if self.video_fps is None or self.video_fps <= 0:
+            self.video_fps = 30.0
+
+        cur_sec = current_frame / self.video_fps
+        total_sec = self.duration_sec
+
+        def fmt(t):
+            t = max(0, int(round(t)))
+            m = t // 60
+            s = t % 60
+            return f"{m:02d}:{s:02d}"
+
+        self.lbl_time.setText(
+            f"{fmt(cur_sec)} / {fmt(total_sec)}  (frame {current_frame+1}/{self.total_frames})"
+        )
 
     # ----------------------------
     # File handling
@@ -375,14 +501,22 @@ class MainWindow(QMainWindow):
 
         self.orig_img = img
         self.proc_img = self.process_frame(img)
-
-        self.lbl_orig.setPixmap(cv_bgr_to_qpixmap(self.orig_img))
-        self.lbl_proc.setPixmap(cv_bgr_to_qpixmap(self.proc_img))
+        self._refresh_views()
 
         self.btn_save_img.setEnabled(True)
         self.btn_save_vid.setEnabled(False)
         self.btn_play.setEnabled(False)
         self.btn_pause.setEnabled(False)
+
+        # timeline hide
+        self.timeline_widget.setVisible(False)
+        self.lbl_video_info.setText("")
+        self.lbl_time.setText("")
+        self.sld_timeline.setEnabled(False)
+        self.sld_timeline.setRange(0, 0)
+        self.sld_timeline.setValue(0)
+        self.total_frames = 0
+        self.duration_sec = 0.0
 
     def load_video(self, path):
         cap = cv2.VideoCapture(path)
@@ -400,6 +534,23 @@ class MainWindow(QMainWindow):
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.video_size = (w, h)
 
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count <= 0:
+            frame_count = 1
+        self.total_frames = frame_count
+        self.duration_sec = self.total_frames / max(self.video_fps, 1.0)
+
+        # show timeline only for video
+        self.timeline_widget.setVisible(True)
+        self.sld_timeline.setEnabled(True)
+        self.sld_timeline.setRange(0, self.total_frames - 1)
+        self.sld_timeline.setValue(0)
+
+        self.lbl_video_info.setText(
+            f"{os.path.basename(path)}  |  {w}x{h}  |  FPS {self.video_fps:.2f}  |  Frames {self.total_frames}"
+        )
+        self._update_time_label(current_frame=0)
+
         ok, frame = cap.read()
         if not ok or frame is None:
             QMessageBox.critical(self, "Error", "Failed to read first frame.")
@@ -408,11 +559,10 @@ class MainWindow(QMainWindow):
 
         self.orig_img = frame
         self.proc_img = self.process_frame(frame)
-
-        self.lbl_orig.setPixmap(cv_bgr_to_qpixmap(self.orig_img))
-        self.lbl_proc.setPixmap(cv_bgr_to_qpixmap(self.proc_img))
+        self._refresh_views()
 
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self._sync_timeline(0)
 
         self.btn_save_img.setEnabled(False)
         self.btn_save_vid.setEnabled(True)
@@ -450,7 +600,7 @@ class MainWindow(QMainWindow):
         if self.orig_img is None:
             return
         self.proc_img = self.process_frame(self.orig_img)
-        self.lbl_proc.setPixmap(cv_bgr_to_qpixmap(self.proc_img))
+        self._set_label_bgr(self.lbl_proc, self.proc_img)
 
     # ----------------------------
     # Video playback / saving
@@ -469,7 +619,7 @@ class MainWindow(QMainWindow):
         if self.cap is not None:
             self.cap.release()
             self.cap = None
-        self._stop_video_writer_if_needed(reset_button=True)
+        self._stop_video_writer_if_needed(reset_button=True, show_saved_msg=False)
 
     def _video_tick(self):
         if self.cap is None:
@@ -478,18 +628,19 @@ class MainWindow(QMainWindow):
         ok, frame = self.cap.read()
         if not ok or frame is None:
             self.timer.stop()
-            self._stop_video_writer_if_needed(reset_button=True)
+            self._stop_video_writer_if_needed(reset_button=True, show_saved_msg=True)
             return
 
         self.orig_img = frame
-        proc = self.process_frame(frame)
-        self.proc_img = proc
+        self.proc_img = self.process_frame(frame)
+        self._refresh_views()
 
-        self.lbl_orig.setPixmap(cv_bgr_to_qpixmap(frame))
-        self.lbl_proc.setPixmap(cv_bgr_to_qpixmap(proc))
+        pos = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+        if not self.seeking:
+            self._sync_timeline(pos)
 
         if self.saving_video and self.video_writer is not None:
-            self.video_writer.write(proc)
+            self.video_writer.write(self.proc_img)
 
     def toggle_video_save(self):
         if self.mode != "video":
@@ -508,16 +659,17 @@ class MainWindow(QMainWindow):
             else:
                 fourcc = cv2.VideoWriter_fourcc(*"XVID")
 
-            self.video_writer = cv2.VideoWriter(
-                out_path, fourcc, self.video_fps, self.video_size
-            )
+            self.video_writer = cv2.VideoWriter(out_path, fourcc, self.video_fps, self.video_size)
             if not self.video_writer.isOpened():
                 self.video_writer = None
                 QMessageBox.critical(self, "Error", "Failed to open VideoWriter.")
                 return
 
+            self.video_out_path = out_path
+
             if self.cap is not None:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                self._sync_timeline(0)
 
             self.saving_video = True
             self.btn_save_vid.setText("Stop Video Save")
@@ -525,23 +677,30 @@ class MainWindow(QMainWindow):
             if not self.timer.isActive():
                 self.play_video()
         else:
-            self._stop_video_writer_if_needed(reset_button=True)
+            self._stop_video_writer_if_needed(reset_button=True, show_saved_msg=True)
 
-    def _stop_video_writer_if_needed(self, reset_button: bool):
+    def _stop_video_writer_if_needed(self, reset_button: bool, show_saved_msg: bool = False):
+        out_path = self.video_out_path
+
         if self.video_writer is not None:
             self.video_writer.release()
             self.video_writer = None
 
+        was_saving = self.saving_video
         if self.saving_video:
             self.saving_video = False
             if reset_button:
                 self.btn_save_vid.setText("Start Video Save")
 
+        self.video_out_path = None
+
+        if show_saved_msg and was_saving and out_path:
+            QMessageBox.information(self, "Saved", f"Saved processed video:\n{out_path}")
+
     # ----------------------------
     # Save image
     # ----------------------------
     def save_image(self):
-
         if self.mode != "image" or self.proc_img is None:
             return
 
@@ -567,15 +726,9 @@ class MainWindow(QMainWindow):
 
         try:
             ok = cv2.imwrite(out_path, self.proc_img)
-
             if not ok:
-                QMessageBox.critical(
-                    self,
-                    "Save Failed",
-                    f"cv2.imwrite returned False.\nPath:\n{out_path}"
-                )
+                QMessageBox.critical(self, "Save Failed", f"cv2.imwrite returned False.\nPath:\n{out_path}")
                 return
-
         except cv2.error as e:
             QMessageBox.critical(
                 self,
@@ -585,7 +738,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        QMessageBox.information(self, "Saved", f"Saved:\n{out_path}")
+        QMessageBox.information(self, "Saved", f"Saved processed image:\n{out_path}")
 
     def closeEvent(self, event):
         self.stop_video()
