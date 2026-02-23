@@ -30,9 +30,9 @@ jobs:
             --name ImageProcessor `
             --collect-all PyQt5 `
             --collect-all cv2 `
-            --collect-all ultralytics `  
-            --collect-all torch `        
-            --add-data "best.pt;." ` 
+            --collect-all ultralytics `
+            --collect-all torch `
+            --add-data "best.pt;." `
             main2.py
 
       - name: Upload artifact
