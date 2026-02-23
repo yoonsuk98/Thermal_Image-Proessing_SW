@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 
+from ultralytics import YOLO
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
@@ -168,6 +169,10 @@ def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
     qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg)
 
+def get_resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 # ----------------------------
 # Main GUI
@@ -175,7 +180,7 @@ def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PyQt Image/Video Processor (Gaussian + CLAHE + Laplacian Sharpen)")
+        self.setWindowTitle("Image/Video Processor (Gaussian + CLAHE + Laplacian Sharpen + Yolov8)")
         self.resize(1400, 720)
 
         # State
@@ -193,6 +198,11 @@ class MainWindow(QMainWindow):
         self.video_out_path = None
         self.video_fps = None
         self.video_size = None
+
+        # YOLO
+        self.yolo_model = None
+        self.yolo_enabled = False
+        self.yolo_conf = 0.50  # default
 
         # Timeline state
         self.total_frames = 0
@@ -312,6 +322,24 @@ class MainWindow(QMainWindow):
         self.chk_sharpen = QCheckBox("Enable Laplacian Pyramid Sharpen")
         self.chk_sharpen.setChecked(True)
 
+        self.chk_yolo = QCheckBox("Enable YOLO Detection")
+        self.chk_yolo.setChecked(False)
+
+        # confidence 조절 (0.01 ~ 1.00)
+        lbl_yconf, self.sld_yconf, self.sp_yconf = make_float_control(
+            "YOLO conf", 0.01, 1.00, 0.25, step=0.01, decimals=2
+        )
+
+        layout.addSpacing(8)
+        layout.addWidget(self.chk_yolo)
+        g_yolo = QGroupBox("YOLO")
+        yl = QGridLayout()
+        yl.addWidget(lbl_yconf,     0, 0)
+        yl.addWidget(self.sld_yconf,0, 1)
+        yl.addWidget(self.sp_yconf, 0, 2)
+        g_yolo.setLayout(yl)
+        layout.addWidget(g_yolo)
+
         layout.addWidget(self.chk_denoise)
         layout.addWidget(self.chk_clahe)
         layout.addWidget(self.chk_sharpen)
@@ -344,6 +372,7 @@ class MainWindow(QMainWindow):
         sl.addWidget(lbl_w2, 2, 0); sl.addWidget(self.sld_w2, 2, 1); sl.addWidget(self.sp_w2, 2, 2)
         g_sharp.setLayout(sl)
 
+
         layout.addSpacing(8)
         layout.addWidget(g_gauss)
         layout.addWidget(g_clahe)
@@ -353,9 +382,41 @@ class MainWindow(QMainWindow):
         box.setLayout(layout)
         return box
 
+    def _ensure_yolo_loaded(self):
+        if self.yolo_model is None:
+            # 단순히 "best.pt"가 아니라 함수를 통해 경로를 가져옵니다.
+            weight_path = get_resource_path("best.pt")
+            
+            # 실제 파일이 있는지 확인하는 안전장치
+            if not os.path.exists(weight_path):
+                QMessageBox.critical(self, "Model Error", f"가중치 파일을 찾을 수 없습니다:\n{weight_path}")
+                return
+
+            self.yolo_model = YOLO(weight_path)
+
+    def yolo_detect_and_draw(self, bgr: np.ndarray, infer_size) -> np.ndarray:
+        """
+        confidence threshold는 GUI 값 사용
+        """
+        self._ensure_yolo_loaded()
+
+        conf = float(self.sp_yconf.value())  # GUI에서 조절
+        # ultralytics는 BGR도 넣어도 되지만, 내부에서 처리됨. (성능/일관성 위해 그대로 사용)
+        results = self.yolo_model.predict(
+            source=bgr,
+            conf=conf,
+            imgsz = infer_size,
+            verbose=False
+        )
+
+        # results[0].plot()는 BGR로 반환(ultralytics 기본 동작)
+        annotated = results[0].plot()
+        return annotated
+
     def _connect_param_signals(self):
         widgets = [
             self.chk_denoise, self.chk_clahe, self.chk_sharpen,
+            self.chk_yolo, self.sld_yconf, self.sp_yconf,
             self.sld_ksize, self.sp_ksize,
             self.sld_sigma, self.sp_sigma,
             self.sld_clip, self.sp_clip,
@@ -593,6 +654,11 @@ class MainWindow(QMainWindow):
             w1 = float(self.sp_w1.value())
             w2 = float(self.sp_w2.value())
             out = laplacian_pyramid_sharpen(out, w0=w0, w1=w1, w2=w2)
+
+        if self.chk_yolo.isChecked():
+            h, w = out.shape[:2]
+            infer_size = ((h // 32) * 32, (w // 32) * 32)
+            out = self.yolo_detect_and_draw(out,infer_size)
 
         return out
 
