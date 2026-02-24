@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
     def _ensure_yolo_loaded(self):
         if self.yolo_model is None:
             # 함수를 통해 경로를 가져옴
-            weight_path = get_resource_path("best.pt")
+            weight_path = get_resource_path("yolov8n.pt")
             
             # 실제 파일이 있는지 확인
             if not os.path.exists(weight_path):
