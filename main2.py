@@ -169,6 +169,7 @@ def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
     qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg)
 
+
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
@@ -201,7 +202,6 @@ class MainWindow(QMainWindow):
 
         # YOLO
         self.yolo_model = None
-        self.yolo_enabled = False
         self.yolo_conf = 0.50  # default
 
         # Timeline state
@@ -229,12 +229,11 @@ class MainWindow(QMainWindow):
         btn_open = QPushButton("Open Image/Video")
         btn_open.clicked.connect(self.open_file)
 
-        self.btn_play = QPushButton("Play")
-        self.btn_play.clicked.connect(self.play_video)
-        self.btn_pause = QPushButton("Pause")
-        self.btn_pause.clicked.connect(self.pause_video)
-        self.btn_play.setEnabled(False)
-        self.btn_pause.setEnabled(False)
+        # Play/Pause Toggle Button (single)
+        self.btn_playpause = QPushButton("▶")
+        self.btn_playpause.setFixedWidth(55)
+        self.btn_playpause.clicked.connect(self.toggle_play_pause)
+        self.btn_playpause.setEnabled(False)
 
         self.btn_save_img = QPushButton("Save Processed Image")
         self.btn_save_img.clicked.connect(self.save_image)
@@ -247,27 +246,26 @@ class MainWindow(QMainWindow):
         # Timeline widget (video only) - hidden by default
         self.timeline_widget = QWidget()
         tl = QHBoxLayout(self.timeline_widget)
-        tl.setContentsMargins(0, 0, 0, 0)
-        tl.setSpacing(8)
+        tl.setContentsMargins(0, 5, 0, 5)
+        tl.setSpacing(5)
 
-        self.lbl_video_info = QLabel("")  # no "Video:-"
-        self.lbl_video_info.setAlignment(Qt.AlignLeft)
-        self.lbl_video_info.setMinimumWidth(240)
+        self.lbl_video_info = QLabel("")
+        self.lbl_video_info.setMinimumWidth(150)
+        tl.addWidget(self.lbl_video_info, 0)
+
+        # Play/Pause button to the LEFT of slider
+        tl.addWidget(self.btn_playpause)
 
         self.sld_timeline = ClickableSlider(Qt.Horizontal)
         self.sld_timeline.setEnabled(False)
         self.sld_timeline.setRange(0, 0)
-        self.sld_timeline.setSingleStep(1)
-        self.sld_timeline.setPageStep(10)
-        self.sld_timeline.setFixedHeight(14)  #  더 얇게
+        self.sld_timeline.setFixedHeight(14)
         self.sld_timeline.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        tl.addWidget(self.sld_timeline, 1)
 
         self.lbl_time = QLabel("")
         self.lbl_time.setAlignment(Qt.AlignRight)
-        self.lbl_time.setMinimumWidth(220)
-
-        tl.addWidget(self.lbl_video_info, 0)
-        tl.addWidget(self.sld_timeline, 1)
+        self.lbl_time.setMinimumWidth(180)
         tl.addWidget(self.lbl_time, 0)
 
         self.timeline_widget.setVisible(False)
@@ -278,8 +276,6 @@ class MainWindow(QMainWindow):
         # Layouts
         top_btns = QHBoxLayout()
         top_btns.addWidget(btn_open)
-        top_btns.addWidget(self.btn_play)
-        top_btns.addWidget(self.btn_pause)
         top_btns.addStretch(1)
         top_btns.addWidget(self.btn_save_img)
         top_btns.addWidget(self.btn_save_vid)
@@ -290,7 +286,7 @@ class MainWindow(QMainWindow):
 
         left = QVBoxLayout()
         left.addLayout(top_btns, 0)
-        left.addLayout(views, 1)              #  영상 영역이 항상 제일 크게 늘어남
+        left.addLayout(views, 1)
         left.addWidget(self.timeline_widget, 0)
 
         root = QHBoxLayout()
@@ -316,7 +312,7 @@ class MainWindow(QMainWindow):
         self.chk_denoise = QCheckBox("Enable Gaussian Denoise")
         self.chk_denoise.setChecked(True)
 
-        self.chk_clahe = QCheckBox("Enable CLAHE (on Gray)")
+        self.chk_clahe = QCheckBox("Enable CLAHE")
         self.chk_clahe.setChecked(True)
 
         self.chk_sharpen = QCheckBox("Enable Laplacian Pyramid Sharpen")
@@ -325,34 +321,36 @@ class MainWindow(QMainWindow):
         self.chk_yolo = QCheckBox("Enable YOLO Detection")
         self.chk_yolo.setChecked(False)
 
-        # confidence 조절 (0.01 ~ 1.00)
         lbl_yconf, self.sld_yconf, self.sp_yconf = make_float_control(
-            "YOLO conf", 0.01, 1.00, 0.25, step=0.01, decimals=2
+            "YOLO conf", 0.01, 1.00, 0.50, step=0.01, decimals=2
         )
 
         layout.addSpacing(8)
         layout.addWidget(self.chk_yolo)
-        g_yolo = QGroupBox("YOLO")
+        g_yolo = QGroupBox("")
         yl = QGridLayout()
-        yl.addWidget(lbl_yconf,     0, 0)
-        yl.addWidget(self.sld_yconf,0, 1)
-        yl.addWidget(self.sp_yconf, 0, 2)
+        yl.addWidget(lbl_yconf,      0, 0)
+        yl.addWidget(self.sld_yconf, 0, 1)
+        yl.addWidget(self.sp_yconf,  0, 2)
         g_yolo.setLayout(yl)
         layout.addWidget(g_yolo)
 
-        layout.addWidget(self.chk_denoise)
-        layout.addWidget(self.chk_clahe)
-        layout.addWidget(self.chk_sharpen)
+        layout.addSpacing(8)
 
-        g_gauss = QGroupBox("Gaussian")
+        layout.addWidget(self.chk_denoise)
+        g_gauss = QGroupBox("")
         gl = QGridLayout()
         lbl_ksize, self.sld_ksize, self.sp_ksize = make_int_control("ksize", 1, 99, 5, step=2)
         lbl_sigma, self.sld_sigma, self.sp_sigma = make_float_control("sigma", 0.0, 50.0, 0.0, step=0.25, decimals=2)
         gl.addWidget(lbl_ksize, 0, 0); gl.addWidget(self.sld_ksize, 0, 1); gl.addWidget(self.sp_ksize, 0, 2)
         gl.addWidget(lbl_sigma, 1, 0); gl.addWidget(self.sld_sigma, 1, 1); gl.addWidget(self.sp_sigma, 1, 2)
         g_gauss.setLayout(gl)
+        layout.addWidget(g_gauss)
 
-        g_clahe = QGroupBox("CLAHE")
+        layout.addSpacing(8)
+
+        layout.addWidget(self.chk_clahe)
+        g_clahe = QGroupBox("")
         cl = QGridLayout()
         lbl_clip, self.sld_clip, self.sp_clip = make_float_control("clipLimit", 0.1, 20.0, 2.0, step=0.1, decimals=2)
         lbl_tx, self.sld_tile_x, self.sp_tile_x = make_int_control("tileGrid X", 2, 64, 8, step=1)
@@ -361,8 +359,12 @@ class MainWindow(QMainWindow):
         cl.addWidget(lbl_tx,   1, 0); cl.addWidget(self.sld_tile_x, 1, 1); cl.addWidget(self.sp_tile_x, 1, 2)
         cl.addWidget(lbl_ty,   2, 0); cl.addWidget(self.sld_tile_y, 2, 1); cl.addWidget(self.sp_tile_y, 2, 2)
         g_clahe.setLayout(cl)
+        layout.addWidget(g_clahe)
 
-        g_sharp = QGroupBox("Laplacian Pyramid Sharpen")
+        layout.addSpacing(8)
+
+        layout.addWidget(self.chk_sharpen)
+        g_sharp = QGroupBox("")
         sl = QGridLayout()
         lbl_w0, self.sld_w0, self.sp_w0 = make_float_control("w0 (fine)",   0.0, 5.0, 1.50, step=0.05, decimals=2)
         lbl_w1, self.sld_w1, self.sp_w1 = make_float_control("w1 (mid)",    0.0, 5.0, 1.25, step=0.05, decimals=2)
@@ -371,23 +373,18 @@ class MainWindow(QMainWindow):
         sl.addWidget(lbl_w1, 1, 0); sl.addWidget(self.sld_w1, 1, 1); sl.addWidget(self.sp_w1, 1, 2)
         sl.addWidget(lbl_w2, 2, 0); sl.addWidget(self.sld_w2, 2, 1); sl.addWidget(self.sp_w2, 2, 2)
         g_sharp.setLayout(sl)
-
-
-        layout.addSpacing(8)
-        layout.addWidget(g_gauss)
-        layout.addWidget(g_clahe)
         layout.addWidget(g_sharp)
-        layout.addStretch(1)
 
+        layout.addStretch(1)
         box.setLayout(layout)
         return box
 
     def _ensure_yolo_loaded(self):
         if self.yolo_model is None:
-            # 단순히 "best.pt"가 아니라 함수를 통해 경로를 가져옵니다.
+            # 함수를 통해 경로를 가져옴
             weight_path = get_resource_path("best.pt")
             
-            # 실제 파일이 있는지 확인하는 안전장치
+            # 실제 파일이 있는지 확인
             if not os.path.exists(weight_path):
                 QMessageBox.critical(self, "Model Error", f"가중치 파일을 찾을 수 없습니다:\n{weight_path}")
                 return
@@ -395,23 +392,16 @@ class MainWindow(QMainWindow):
             self.yolo_model = YOLO(weight_path)
 
     def yolo_detect_and_draw(self, bgr: np.ndarray, infer_size) -> np.ndarray:
-        """
-        confidence threshold는 GUI 값 사용
-        """
         self._ensure_yolo_loaded()
 
-        conf = float(self.sp_yconf.value())  # GUI에서 조절
-        # ultralytics는 BGR도 넣어도 되지만, 내부에서 처리됨. (성능/일관성 위해 그대로 사용)
+        conf = float(self.sp_yconf.value())
         results = self.yolo_model.predict(
             source=bgr,
             conf=conf,
-            imgsz = infer_size,
+            imgsz=infer_size,
             verbose=False
         )
-
-        # results[0].plot()는 BGR로 반환(ultralytics 기본 동작)
-        annotated = results[0].plot()
-        return annotated
+        return results[0].plot()
 
     def _connect_param_signals(self):
         widgets = [
@@ -433,25 +423,24 @@ class MainWindow(QMainWindow):
                 w.valueChanged.connect(self.refresh_once)
 
     # ----------------------------
-    # Display helpers (fill labels)
+    # Display helpers
     # ----------------------------
     def _set_label_bgr(self, label: QLabel, bgr: np.ndarray):
         if bgr is None:
             label.clear()
             return
         pix = bgr_to_qpixmap(bgr)
-        # 라벨 크기에 맞춰 꽉 채우기(비율 유지)
         label.setPixmap(pix.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _refresh_views(self):
-        if self.orig_img is not None:
-            self._set_label_bgr(self.lbl_orig, self.orig_img)
+        display_src = getattr(self, 'display_org', self.orig_img)
+        if display_src is not None:
+            self._set_label_bgr(self.lbl_orig, display_src)
         if self.proc_img is not None:
             self._set_label_bgr(self.lbl_proc, self.proc_img)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # 창 크기 바뀌면 현재 프레임을 라벨 크기에 맞춰 다시 스케일
         self._refresh_views()
 
     # ----------------------------
@@ -566,10 +555,9 @@ class MainWindow(QMainWindow):
 
         self.btn_save_img.setEnabled(True)
         self.btn_save_vid.setEnabled(False)
-        self.btn_play.setEnabled(False)
-        self.btn_pause.setEnabled(False)
+        self.btn_playpause.setEnabled(False)
+        self.btn_playpause.setText("▶")
 
-        # timeline hide
         self.timeline_widget.setVisible(False)
         self.lbl_video_info.setText("")
         self.lbl_time.setText("")
@@ -601,7 +589,6 @@ class MainWindow(QMainWindow):
         self.total_frames = frame_count
         self.duration_sec = self.total_frames / max(self.video_fps, 1.0)
 
-        # show timeline only for video
         self.timeline_widget.setVisible(True)
         self.sld_timeline.setEnabled(True)
         self.sld_timeline.setRange(0, self.total_frames - 1)
@@ -627,14 +614,15 @@ class MainWindow(QMainWindow):
 
         self.btn_save_img.setEnabled(False)
         self.btn_save_vid.setEnabled(True)
-        self.btn_play.setEnabled(True)
-        self.btn_pause.setEnabled(True)
+        self.btn_playpause.setEnabled(True)
+        self.btn_playpause.setText("▶")
 
     # ----------------------------
     # Processing pipeline
     # ----------------------------
     def process_frame(self, bgr: np.ndarray) -> np.ndarray:
         out = bgr.copy()
+        self.display_org = bgr.copy()
 
         if self.chk_denoise.isChecked():
             k = int(self.sp_ksize.value())
@@ -658,7 +646,8 @@ class MainWindow(QMainWindow):
         if self.chk_yolo.isChecked():
             h, w = out.shape[:2]
             infer_size = ((h // 32) * 32, (w // 32) * 32)
-            out = self.yolo_detect_and_draw(out,infer_size)
+            self.display_org = self.yolo_detect_and_draw(self.display_org, infer_size)
+            out = self.yolo_detect_and_draw(out, infer_size)
 
         return out
 
@@ -666,25 +655,36 @@ class MainWindow(QMainWindow):
         if self.orig_img is None:
             return
         self.proc_img = self.process_frame(self.orig_img)
-        self._set_label_bgr(self.lbl_proc, self.proc_img)
+        self._refresh_views()
 
     # ----------------------------
     # Video playback / saving
     # ----------------------------
+    def toggle_play_pause(self):
+        if self.mode != "video" or self.cap is None:
+            return
+        if self.timer.isActive():
+            self.pause_video()
+        else:
+            self.play_video()
+
     def play_video(self):
         if self.mode != "video" or self.cap is None:
             return
         interval = int(1000.0 / max(self.video_fps, 1.0))
         self.timer.start(interval)
+        self.btn_playpause.setText("┃┃")
 
     def pause_video(self):
         self.timer.stop()
+        self.btn_playpause.setText("▶")
 
     def stop_video(self):
         self.timer.stop()
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+        self.btn_playpause.setText("▶")
         self._stop_video_writer_if_needed(reset_button=True, show_saved_msg=False)
 
     def _video_tick(self):
@@ -694,6 +694,7 @@ class MainWindow(QMainWindow):
         ok, frame = self.cap.read()
         if not ok or frame is None:
             self.timer.stop()
+            self.btn_playpause.setText("▶")
             self._stop_video_writer_if_needed(reset_button=True, show_saved_msg=True)
             return
 
