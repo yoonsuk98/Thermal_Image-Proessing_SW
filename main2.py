@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
     def _ensure_yolo_loaded(self):
         if self.yolo_model is None:
             # 함수를 통해 경로를 가져옴
-            weight_path = get_resource_path("yolov8n.pt")
+            weight_path = get_resource_path("best.pt")
             
             # 실제 파일이 있는지 확인
             if not os.path.exists(weight_path):
@@ -735,8 +735,9 @@ class MainWindow(QMainWindow):
             self.video_out_path = out_path
 
             if self.cap is not None:
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                self._sync_timeline(0)
+                start_frame = int(self.sld_timeline.value())
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                self._sync_timeline(start_frame)
 
             self.saving_video = True
             self.btn_save_vid.setText("Stop Video Save")
