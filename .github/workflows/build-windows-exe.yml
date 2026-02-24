@@ -32,7 +32,7 @@ jobs:
             --collect-all cv2 `
             --collect-all ultralytics `
             --collect-all torch `
-            --add-data "best.pt;." `
+            --add-data "yolov8n.pt;." `
             main2.py
 
       - name: Upload artifact
