@@ -169,12 +169,6 @@ def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
     qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg)
 
-
-def get_resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
-
 # ----------------------------
 # Main GUI
 # ----------------------------
@@ -202,6 +196,7 @@ class MainWindow(QMainWindow):
 
         # YOLO
         self.yolo_model = None
+        self.yolo_model_path = None  
         self.yolo_conf = 0.50  # default
 
         # Timeline state
@@ -228,10 +223,6 @@ class MainWindow(QMainWindow):
         # Buttons
         btn_open = QPushButton("Open Image/Video")
         btn_open.clicked.connect(self.open_file)
-
-        # load YOLO weight 
-        self.btn_load_model = QPushButton("Load YOLO weight (.pt/.onnx)")
-        self.btn_load_model.clicked.connect(self.load_yolo_model_dialog)
 
         # Play/Pause Toggle Button (single)
         self.btn_playpause = QPushButton("▶")
@@ -280,7 +271,6 @@ class MainWindow(QMainWindow):
         # Layouts
         top_btns = QHBoxLayout()
         top_btns.addWidget(btn_open)
-        top_btns.addWidget(self.btn_load_model)
         top_btns.addStretch(1)
         top_btns.addWidget(self.btn_save_img)
         top_btns.addWidget(self.btn_save_vid)
@@ -384,55 +374,55 @@ class MainWindow(QMainWindow):
         box.setLayout(layout)
         return box
 
-    def load_yolo_model_dialog(self):
-        """(pt, onnx 모두 지원)"""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select YOLO Model", "", "YOLO Models (*.pt *.onnx);;All Files (*.*)"
-        )
-        if path:
-            try:
-                self.yolo_model = YOLO(path)
-                QMessageBox.information(self, "Success", f"새 모델 로드 완료:\n{os.path.basename(path)}")
-                if self.chk_yolo.isChecked():
-                    self.refresh_once()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"모델 로드 실패: {e}")
+    def _on_toggle_yolo(self, state: int):
+        enabled = (state == Qt.Checked)
 
-    def _ensure_yolo_loaded(self):
-        if self.yolo_model is None:
+        if enabled:
+            ok = self._ensure_yolo_loaded(force_dialog_if_missing=True)
+            if not ok:
+                self.chk_yolo.blockSignals(True)
+                self.chk_yolo.setChecked(False)
+                self.chk_yolo.blockSignals(False)
+                return
+
+        self.refresh_once()
+
+    def _ensure_yolo_loaded(self, force_dialog_if_missing: bool = False) -> bool:
+        # 이미 로드되어 있으면 OK
+        if self.yolo_model is not None:
             return True
-        
-        # 함수를 통해 경로를 가져옴
-        weight_path = get_resource_path("best.pt")
-            
-        # 2. 파일이 없으면 사용자에게 직접 선택 요청
-        if not os.path.exists(weight_path):
-            QMessageBox.warning(
-                self, "가중치 파일 미검출", 
-                "기본 가중치(best.pt)를 찾을 수 없습니다.\n사용할 모델 파일(.pt)을 직접 선택해주세요."
-            )
-            # 파일 탐색기 열기
+
+        # 로드된 모델이 없으면, 필요할 때만 다이얼로그로 받기
+        if force_dialog_if_missing or (self.yolo_model_path is None):
             path, _ = QFileDialog.getOpenFileName(
-                self, "YOLO 모델 선택", "", "YOLO Models (*.pt *.onnx);;All Files (*.*)"
+                self,
+                "Select YOLO weight (.pt/.onnx)",
+                "",
+                "YOLO Models (*.pt *.onnx);;All Files (*.*)"
             )
-            if path:
-                weight_path = path
-            else:
-                # 사용자가 취소한 경우
-                QMessageBox.critical(self, "오류", "모델 파일이 없어 YOLO 기능을 사용할 수 없습니다.")
-                self.chk_yolo.setChecked(False) # 체크박스 해제
+            if not path:  # 사용자가 취소
                 return False
+            self.yolo_model_path = path
+
+        # 경로가 없으면 실패
+        if not self.yolo_model_path:
+            return False
 
         try:
-            self.yolo_model = YOLO(weight_path)
+            self.yolo_model = YOLO(self.yolo_model_path)
             return True
         except Exception as e:
-            QMessageBox.critical(self, "로드 실패", f"모델을 불러오지 못했습니다:\n{e}")
-            self.chk_yolo.setChecked(False)
+            QMessageBox.critical(self, "Error", f"모델 로드 실패:\n{e}")
+            self.yolo_model = None
             return False
 
     def yolo_detect_and_draw(self, bgr: np.ndarray, infer_size) -> np.ndarray:
-        self._ensure_yolo_loaded()
+        if bgr is None:
+            return bgr
+
+        # 모델이 없으면 로드 시도 (실패/취소면 원본 반환)
+        if not self._ensure_yolo_loaded(force_dialog_if_missing=False):
+            return bgr
 
         conf = float(self.sp_yconf.value())
         results = self.yolo_model.predict(
@@ -457,10 +447,15 @@ class MainWindow(QMainWindow):
             self.sld_w2, self.sp_w2
         ]
         for w in widgets:
+            if w is self.chk_yolo:
+                continue
             if isinstance(w, QCheckBox):
                 w.stateChanged.connect(self.refresh_once)
             else:
                 w.valueChanged.connect(self.refresh_once)
+
+        # YOLO 체크박스는 전용 핸들러로
+        self.chk_yolo.stateChanged.connect(self._on_toggle_yolo)
 
     # ----------------------------
     # Display helpers
