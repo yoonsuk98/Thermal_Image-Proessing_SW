@@ -461,11 +461,15 @@ class MainWindow(QMainWindow):
         if not self._ensure_yolo_loaded(force_dialog_if_missing=False):
             return bgr
 
+        # ONNX면 imgsz 고정(대부분 정적 입력)
+        is_onnx = (self.yolo_model_path or "").lower().endswith(".onnx")
+        imgsz = 640 if is_onnx else infer_size  # pt는 기존 방식 유지
+
         conf = float(self.sp_yconf.value())
         results = self.yolo_model.predict(
             source=bgr,
             conf=conf,
-            imgsz=640,
+            imgsz=imgsz,
             verbose=False
         )
         return results[0].plot()
