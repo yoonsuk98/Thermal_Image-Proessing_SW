@@ -3,5 +3,3 @@ opencv-python
 PyQt5
 pyinstaller
 ultralytics
-onnx
-onnxruntime
