@@ -400,15 +400,36 @@ class MainWindow(QMainWindow):
 
     def _ensure_yolo_loaded(self):
         if self.yolo_model is None:
-            # 함수를 통해 경로를 가져옴
-            weight_path = get_resource_path("best.pt")
+            return True
+        
+        # 함수를 통해 경로를 가져옴
+        weight_path = get_resource_path("best.pt")
             
-            # 실제 파일이 있는지 확인
-            if not os.path.exists(weight_path):
-                QMessageBox.critical(self, "Model Error", f"가중치 파일을 찾을 수 없습니다:\n{weight_path}")
-                return
+        # 2. 파일이 없으면 사용자에게 직접 선택 요청
+        if not os.path.exists(weight_path):
+            QMessageBox.warning(
+                self, "가중치 파일 미검출", 
+                "기본 가중치(best.pt)를 찾을 수 없습니다.\n사용할 모델 파일(.pt)을 직접 선택해주세요."
+            )
+            # 파일 탐색기 열기
+            path, _ = QFileDialog.getOpenFileName(
+                self, "YOLO 모델 선택", "", "YOLO Models (*.pt *.onnx);;All Files (*.*)"
+            )
+            if path:
+                weight_path = path
+            else:
+                # 사용자가 취소한 경우
+                QMessageBox.critical(self, "오류", "모델 파일이 없어 YOLO 기능을 사용할 수 없습니다.")
+                self.chk_yolo.setChecked(False) # 체크박스 해제
+                return False
 
+        try:
             self.yolo_model = YOLO(weight_path)
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "로드 실패", f"모델을 불러오지 못했습니다:\n{e}")
+            self.chk_yolo.setChecked(False)
+            return False
 
     def yolo_detect_and_draw(self, bgr: np.ndarray, infer_size) -> np.ndarray:
         self._ensure_yolo_loaded()
