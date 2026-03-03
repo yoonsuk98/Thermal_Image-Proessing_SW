@@ -7,6 +7,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sys
 import cv2
 import numpy as np
+import onnxruntime
 
 from ultralytics import YOLO
 from PyQt5.QtCore import Qt, QTimer
