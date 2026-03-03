@@ -229,6 +229,10 @@ class MainWindow(QMainWindow):
         btn_open = QPushButton("Open Image/Video")
         btn_open.clicked.connect(self.open_file)
 
+        # load YOLO weight 
+        self.btn_load_model = QPushButton("Load YOLO weight (.pt/.onnx)")
+        self.btn_load_model.clicked.connect(self.load_yolo_model_dialog)
+
         # Play/Pause Toggle Button (single)
         self.btn_playpause = QPushButton("▶")
         self.btn_playpause.setFixedWidth(55)
@@ -276,6 +280,7 @@ class MainWindow(QMainWindow):
         # Layouts
         top_btns = QHBoxLayout()
         top_btns.addWidget(btn_open)
+        top_btns.addWidget(self.btn_load_model)
         top_btns.addStretch(1)
         top_btns.addWidget(self.btn_save_img)
         top_btns.addWidget(self.btn_save_vid)
@@ -379,10 +384,24 @@ class MainWindow(QMainWindow):
         box.setLayout(layout)
         return box
 
+    def load_yolo_model_dialog(self):
+        """(pt, onnx 모두 지원)"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select YOLO Model", "", "YOLO Models (*.pt *.onnx);;All Files (*.*)"
+        )
+        if path:
+            try:
+                self.yolo_model = YOLO(path)
+                QMessageBox.information(self, "Success", f"새 모델 로드 완료:\n{os.path.basename(path)}")
+                if self.chk_yolo.isChecked():
+                    self.refresh_once()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"모델 로드 실패: {e}")
+
     def _ensure_yolo_loaded(self):
         if self.yolo_model is None:
             # 함수를 통해 경로를 가져옴
-            weight_path = get_resource_path("yolov8n.pt")
+            weight_path = get_resource_path("best.pt")
             
             # 실제 파일이 있는지 확인
             if not os.path.exists(weight_path):
