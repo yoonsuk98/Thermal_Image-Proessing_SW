@@ -31,8 +31,7 @@ jobs:
             --collect-all ultralytics `
             --collect-all onnxruntime `
             --collect-binaries onnxruntime `
-            --hidden-import onnxruntime.capi._pybind_state `
-            --console
+            --hidden-import onnxruntime.capi._pybind_state
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
