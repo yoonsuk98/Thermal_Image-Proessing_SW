@@ -470,6 +470,7 @@ class MainWindow(QMainWindow):
             source=bgr,
             conf=conf,
             imgsz=imgsz,
+            device="cpu",
             verbose=False
         )
         return results[0].plot()
