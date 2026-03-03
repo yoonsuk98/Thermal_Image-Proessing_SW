@@ -154,7 +154,6 @@ def ensure_gray_u8(img_bgr: np.ndarray) -> np.ndarray:
         gray = np.clip(gray, 0, 255).astype(np.uint8)
     return gray
 
-
 def gray_to_bgr(gray: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
@@ -167,6 +166,7 @@ def bgr_to_qpixmap(bgr: np.ndarray) -> QPixmap:
     h, w, ch = rgb.shape
     bytes_per_line = ch * w
     qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+    qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
     return QPixmap.fromImage(qimg)
 
 # ----------------------------
