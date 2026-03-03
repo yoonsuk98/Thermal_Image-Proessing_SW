@@ -26,11 +26,11 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller -F main2.py ^
-            --collect-all ultralytics ^
-            --collect-all onnxruntime ^
-            --collect-binaries onnxruntime ^
-            --hidden-import onnxruntime.capi._pybind_state ^
+          pyinstaller -F main2.py `
+            --collect-all ultralytics `
+            --collect-all onnxruntime `
+            --collect-binaries onnxruntime `
+            --hidden-import onnxruntime.capi._pybind_state `
             --console
 
       - name: Upload artifact
