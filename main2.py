@@ -329,6 +329,10 @@ class MainWindow(QMainWindow):
         yl.addWidget(self.sp_yconf,  0, 2)
         g_yolo.setLayout(yl)
         layout.addWidget(g_yolo)
+        self.btn_change_yolo = QPushButton("Change YOLO weight...")
+        self.btn_change_yolo.clicked.connect(self.change_yolo_weight_dialog)
+        self.btn_change_yolo.setEnabled(False)  # YOLO 켜져 있을 때만 활성화
+        layout.addWidget(self.btn_change_yolo)
 
         layout.addSpacing(8)
 
@@ -377,15 +381,52 @@ class MainWindow(QMainWindow):
     def _on_toggle_yolo(self, state: int):
         enabled = (state == Qt.Checked)
 
+        # 버튼 상태 동기화
+        if hasattr(self, "btn_change_yolo"):
+            self.btn_change_yolo.setEnabled(enabled)
+
         if enabled:
             ok = self._ensure_yolo_loaded(force_dialog_if_missing=True)
             if not ok:
+                # 취소/실패 시 체크 해제 + 버튼 비활성화
                 self.chk_yolo.blockSignals(True)
                 self.chk_yolo.setChecked(False)
                 self.chk_yolo.blockSignals(False)
+                if hasattr(self, "btn_change_yolo"):
+                    self.btn_change_yolo.setEnabled(False)
                 return
 
         self.refresh_once()
+
+    def _load_yolo_from_path(self, path: str) -> bool:
+        """지정 경로로 YOLO 모델을 로드하고 현재 모델을 교체"""
+        if not path:
+            return False
+        try:
+            self.yolo_model = YOLO(path)
+            self.yolo_model_path = path
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"모델 로드 실패:\n{e}")
+            self.yolo_model = None
+            return False
+
+    def change_yolo_weight_dialog(self):
+        """실행 중 모델(.pt/.onnx) 교체"""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Change YOLO weight (.pt/.onnx)",
+            "",
+            "YOLO Models (*.pt *.onnx);;All Files (*.*)"
+        )
+        if not path:
+            return
+
+        ok = self._load_yolo_from_path(path)
+        if ok:
+            QMessageBox.information(self, "Success", f"모델 교체 완료:\n{os.path.basename(path)}")
+            if self.chk_yolo.isChecked():
+                self.refresh_once()
 
     def _ensure_yolo_loaded(self, force_dialog_if_missing: bool = False) -> bool:
         # 이미 로드되어 있으면 OK
@@ -400,21 +441,12 @@ class MainWindow(QMainWindow):
                 "",
                 "YOLO Models (*.pt *.onnx);;All Files (*.*)"
             )
-            if not path:  # 사용자가 취소
+            if not path:
                 return False
-            self.yolo_model_path = path
+            return self._load_yolo_from_path(path)
 
-        # 경로가 없으면 실패
-        if not self.yolo_model_path:
-            return False
-
-        try:
-            self.yolo_model = YOLO(self.yolo_model_path)
-            return True
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"모델 로드 실패:\n{e}")
-            self.yolo_model = None
-            return False
+        # 경로는 있는데 모델 객체가 None이면 재로딩 시도
+        return self._load_yolo_from_path(self.yolo_model_path)
 
     def yolo_detect_and_draw(self, bgr: np.ndarray, infer_size) -> np.ndarray:
         if bgr is None:

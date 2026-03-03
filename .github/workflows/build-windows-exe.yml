@@ -32,6 +32,8 @@ jobs:
             --collect-all cv2 `
             --collect-all ultralytics `
             --collect-all torch `
+            --collect-all onnx `
+            --collect-all onnxruntime `
             --add-data "yolov8n.pt;." `
             main2.py
 
