@@ -26,14 +26,12 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --windowed --onefile `
-            --name ImageProcessor `
-            --collect-all PyQt5 `
-            --collect-all cv2 `
-            --collect-all ultralytics `
-            --collect-all torch `
-            --add-data "yolov8n.pt;." `
-            main2.py
+          pyinstaller -F main2.py ^
+            --collect-all ultralytics ^
+            --collect-all onnxruntime ^
+            --collect-binaries onnxruntime ^
+            --hidden-import onnxruntime.capi._pybind_state ^
+            --console
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
