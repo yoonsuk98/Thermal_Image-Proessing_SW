@@ -27,6 +27,7 @@ jobs:
       - name: Build EXE
         run: |
           pyinstaller -F main2.py `
+            --name ImageProcessor `
             --collect-all ultralytics `
             --collect-all onnxruntime `
             --collect-binaries onnxruntime `
