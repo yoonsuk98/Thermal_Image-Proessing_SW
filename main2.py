@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
         results = self.yolo_model.predict(
             source=bgr,
             conf=conf,
-            imgsz=infer_size,
+            imgsz=640,
             verbose=False
         )
         return results[0].plot()
