@@ -1,5 +1,10 @@
-import sys
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+import sys
 import cv2
 import numpy as np
 
@@ -11,11 +16,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QCheckBox,
     QDoubleSpinBox, QSpinBox, QMessageBox, QSlider, QSizePolicy
 )
-
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # ----------------------------
 # Click-to-seek Slider
