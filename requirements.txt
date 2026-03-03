@@ -4,4 +4,4 @@ PyQt5
 pyinstaller
 ultralytics
 onnx
-onnxruntime-gpu
+onnxruntime
