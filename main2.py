@@ -12,6 +12,11 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QSpinBox, QMessageBox, QSlider, QSizePolicy
 )
 
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 # ----------------------------
 # Click-to-seek Slider
 # ----------------------------
